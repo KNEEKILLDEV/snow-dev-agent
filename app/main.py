@@ -13,12 +13,15 @@ from validation.script_validator import validate_script
 from rag.retriever import retrieve_context
 
 
+st.set_page_config(page_title="AI ServiceNow Developer Agent")
+
 st.title("🚀 AI ServiceNow Developer Agent")
 
 
 provider = st.selectbox(
     "Select AI Provider",
-    ["openai", "gemini", "claude"]
+    ["openai", "gemini", "claude"],
+    index=0  # ✅ default = openai
 )
 
 
@@ -30,18 +33,26 @@ requirement = st.text_area(
 
 if st.button("Show RAG Context"):
 
-    context = retrieve_context(requirement)
+    try:
+        context = retrieve_context(requirement)
+        st.subheader("Retrieved Context")
+        st.code(context)
 
-    st.subheader("Retrieved Context")
-
-    st.code(context)
+    except Exception as e:
+        st.error(f"RAG failed: {e}")
 
 
 if st.button("Generate Script"):
 
-    artifact = generate_script(requirement, provider)
+    if not requirement.strip():
+        st.warning("Please enter a requirement")
+    else:
+        try:
+            artifact = generate_script(requirement, provider)
+            st.session_state["artifact"] = artifact
 
-    st.session_state["artifact"] = artifact
+        except Exception as e:
+            st.error(f"Generation failed: {e}")
 
 
 artifact = st.session_state.get("artifact")
@@ -50,22 +61,23 @@ artifact = st.session_state.get("artifact")
 if artifact:
 
     st.subheader("Artifact Type")
-
     st.write(artifact.artifact_type)
 
     st.subheader("Generated Script")
-
     st.code(artifact.script, language="javascript")
 
     issues = validate_script(artifact.script)
 
     if issues:
-        st.warning(f"Potential issues: {issues}")
+        st.warning(f"Issues detected: {issues}")
 
     if st.button("Deploy to ServiceNow"):
 
-        result = deploy_artifact(artifact.model_dump())
+        try:
+            result = deploy_artifact(artifact.model_dump())
 
-        st.subheader("Deployment Result")
+            st.subheader("Deployment Result")
+            st.json(result)
 
-        st.json(result)
+        except Exception as e:
+            st.error(f"Deployment failed: {e}")

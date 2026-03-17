@@ -6,7 +6,6 @@ from llm.openai_provider import generate_openai
 from llm.gemini_provider import generate_gemini
 from llm.claude_provider import generate_claude
 
-
 load_dotenv()
 
 
@@ -26,6 +25,7 @@ class ModelRouter:
             "claude": self._parse_keys(os.getenv("CLAUDE_KEYS"))
         }
 
+        # ✅ Default set to OpenAI
         self.default_provider = os.getenv("DEFAULT_MODEL_PROVIDER", "openai")
 
     def _parse_keys(self, key_string):
@@ -51,6 +51,23 @@ class ModelRouter:
         if provider not in self.providers:
             raise Exception(f"Unsupported provider: {provider}")
 
-        api_key = self.get_random_key(provider)
+        try:
+            api_key = self.get_random_key(provider)
+            return self.providers[provider](messages, api_key)
 
-        return self.providers[provider](messages, api_key)
+        except Exception as e:
+
+            # 🔁 fallback logic
+            fallback_order = ["openai", "gemini", "claude"]
+
+            for p in fallback_order:
+                if p == provider:
+                    continue
+
+                try:
+                    api_key = self.get_random_key(p)
+                    return self.providers[p](messages, api_key)
+                except:
+                    continue
+
+            raise Exception(f"All providers failed: {str(e)}")
