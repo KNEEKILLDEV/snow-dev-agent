@@ -1,0 +1,8 @@
+[
+  { "content": "Business Rules execute on insert, update, delete." },
+  { "content": "Script Includes are reusable server-side logic." },
+  { "content": "Use GlideRecord to query ServiceNow tables." },
+  { "content": "Client Scripts validate forms on client side." },
+  { "content": "Before Business Rules run before database commit." },
+  { "content": "After Business Rules run after database commit." }
+]
