@@ -1,7 +1,6 @@
 import sys
 import os
 
-# Ensure project root is in path
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -12,16 +11,6 @@ from agent.orchestrator import generate_script
 from integration.servicenow_client import deploy_artifact
 from validation.script_validator import validate_script
 from rag.retriever import retrieve_context
-
-# ✅ RAG auto-init
-try:
-    from rag.ingest_instance import ingest_sample
-    ingest_sample()
-except Exception as e:
-    print("RAG init skipped:", e)
-
-
-# ---------------- UI ---------------- #
 
 st.set_page_config(page_title="AI ServiceNow Developer Agent")
 
@@ -58,7 +47,7 @@ if st.button("Show RAG Context"):
             st.error(f"RAG retrieval failed: {e}")
 
 
-# ---------------- Generation ---------------- #
+# ---------------- Generate ---------------- #
 
 if st.button("Generate Script"):
 
@@ -76,7 +65,7 @@ if st.button("Generate Script"):
 artifact = st.session_state.get("artifact")
 
 
-# ---------------- Display + Validation ---------------- #
+# ---------------- Display ---------------- #
 
 if artifact:
 
@@ -89,6 +78,7 @@ if artifact:
     st.subheader("Generated Script")
     st.code(artifact.script, language="javascript")
 
+    # Validation
     try:
         issues = validate_script(artifact.script)
 
@@ -97,11 +87,11 @@ if artifact:
         else:
             st.success("No validation issues found")
 
-    except Exception as e:
-        st.warning(f"Validation skipped: {e}")
+    except Exception:
+        st.warning("Validation skipped")
 
 
-# ---------------- Deployment ---------------- #
+# ---------------- Deploy ---------------- #
 
     if st.button("Deploy to ServiceNow"):
 

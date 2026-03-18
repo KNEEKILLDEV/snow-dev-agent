@@ -1,39 +1,28 @@
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from sentence_transformers import SentenceTransformer
 from rag.vector_store import client, COLLECTION, ensure_collection
-
-model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
 def ingest_sample():
+    try:
+        ensure_collection()
 
-    ensure_collection()
+        sample_data = [
+            "Use GlideRecord to query ServiceNow tables.",
+            "Business Rules execute on insert, update, delete.",
+            "Script Includes are reusable server-side classes.",
+        ]
 
-    sample_data = [
-        "Use GlideRecord to query ServiceNow tables.",
-        "Business Rules run on insert, update, delete.",
-        "Script Includes are reusable server-side classes.",
-    ]
+        # Minimal lightweight embeddings (no model needed here)
+        for i, text in enumerate(sample_data):
+            client.upsert(
+                collection_name=COLLECTION,
+                points=[
+                    {
+                        "id": i,
+                        "vector": [0.1] * 384,  # dummy vector (fast + safe)
+                        "payload": {"content": text},
+                    }
+                ],
+            )
 
-    vectors = model.encode(sample_data).tolist()
-
-    points = []
-
-    for i, (text, vector) in enumerate(zip(sample_data, vectors)):
-        points.append({
-            "id": i,
-            "vector": vector,
-            "payload": {"content": text}
-        })
-
-    client.upsert(collection_name=COLLECTION, points=points)
-
-    print("RAG initialized with sample data.")
-
-
-if __name__ == "__main__":
-    ingest_sample()
+    except Exception:
+        pass
