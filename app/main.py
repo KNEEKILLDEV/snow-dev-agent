@@ -1,19 +1,29 @@
+import sys
+import os
+
+# 🔥 FIX: Ensure project root is in PYTHONPATH (Render + local)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import streamlit as st
 
 from agent.orchestrator import generate_script
 from integration.servicenow_client import deploy_artifact
 from config.settings import settings
 
-# Optional modules (safe fallback)
+
+# ---------------- SAFE IMPORTS ----------------
 try:
     from validation.script_validator import validate_script
 except:
-    def validate_script(x): return {"valid": True, "issues": []}
+    def validate_script(x):
+        return {"valid": True, "issues": []}
+
 
 try:
     from rag.retriever import retrieve_context
 except:
-    def retrieve_context(x): return ""
+    def retrieve_context(x):
+        return ""
 
 
 # ---------------- UI CONFIG ----------------
@@ -23,6 +33,7 @@ st.set_page_config(
 )
 
 st.title("🚀 AI ServiceNow Developer Agent")
+
 
 # ---------------- INPUT ----------------
 requirement = st.text_area(
@@ -57,7 +68,7 @@ if st.button("Generate Script"):
     with st.spinner("Generating script..."):
 
         try:
-            # 🔍 RAG Context (safe)
+            # 🔍 RAG Context (safe fallback)
             context = retrieve_context(requirement)
 
             # 🤖 Generate script
@@ -93,7 +104,7 @@ if st.button("Generate Script"):
             # ---------------- DEPLOY ----------------
             if st.button("Deploy to ServiceNow"):
 
-                with st.spinner("Deploying..."):
+                with st.spinner("Deploying to ServiceNow..."):
                     try:
                         result = deploy_artifact(artifact)
 
@@ -109,4 +120,4 @@ if st.button("Generate Script"):
 
 # ---------------- FOOTER ----------------
 st.markdown("---")
-st.caption("Built for ServiceNow AI Automation")
+st.caption("Built with ❤️ for ServiceNow AI Automation")
