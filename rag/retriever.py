@@ -1,30 +1,25 @@
 from sentence_transformers import SentenceTransformer
-from rag.vector_store import client, COLLECTION
+from rag.vector_store import client, COLLECTION, ensure_collection
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
-def retrieve_context(query, limit=5):
+def retrieve_context(query, top_k=3):
 
-    # Convert query to vector embedding
-    vector = model.encode(query).tolist()
+    ensure_collection()
 
-    # Query Qdrant vector database
-    response = client.query_points(
-        collection_name=COLLECTION,
-        query=vector,
-        limit=limit
-    )
+    query_vector = model.encode(query).tolist()
 
-    context = []
+    try:
+        results = client.search(
+            collection_name=COLLECTION,
+            query_vector=query_vector,
+            limit=top_k,
+        )
+    except Exception:
+        return "No RAG data available."
 
-    for point in response.points:
+    if not results:
+        return "No relevant context found."
 
-        payload = point.payload or {}
-
-        content = payload.get("content")
-
-        if content:
-            context.append(content)
-
-    return "\n\n".join(context)
+    return "\n\n".join([r.payload.get("content", "") for r in results])
