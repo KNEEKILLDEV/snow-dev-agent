@@ -12,20 +12,39 @@ def parse_keys(key_string):
 
 class Settings:
 
-    # 🔥 MULTI-KEY SUPPORT
-    OPENAI_API_KEYS = parse_keys(os.getenv("OPENAI_API_KEYS"))
-    GEMINI_API_KEYS = parse_keys(os.getenv("GEMINI_API_KEYS"))
-    CLAUDE_API_KEYS = parse_keys(os.getenv("CLAUDE_API_KEYS"))
+    def __init__(self):
 
-    DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "openai")
+        # 🔥 MULTI-KEY SUPPORT
+        self.OPENAI_API_KEYS = parse_keys(os.getenv("OPENAI_API_KEYS"))
+        self.GEMINI_API_KEYS = parse_keys(os.getenv("GEMINI_API_KEYS"))
+        self.CLAUDE_API_KEYS = parse_keys(os.getenv("CLAUDE_API_KEYS"))
 
-    # ServiceNow
-    SN_INSTANCE = os.getenv("SN_INSTANCE")
-    SN_USERNAME = os.getenv("SN_USERNAME")
-    SN_PASSWORD = os.getenv("SN_PASSWORD")
+        self.DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "gemini")
 
-    SN_CLIENT_ID = os.getenv("SN_CLIENT_ID")
-    SN_CLIENT_SECRET = os.getenv("SN_CLIENT_SECRET")
+        # 🔥 ServiceNow
+        self.SN_INSTANCE = os.getenv("SN_INSTANCE")
+        self.SN_USERNAME = os.getenv("SN_USERNAME")
+        self.SN_PASSWORD = os.getenv("SN_PASSWORD")
+
+        self.SN_CLIENT_ID = os.getenv("SN_CLIENT_ID")
+        self.SN_CLIENT_SECRET = os.getenv("SN_CLIENT_SECRET")
+
+        # ✅ Validate critical config
+        self._validate()
+
+    def _validate(self):
+        if not any([
+            self.OPENAI_API_KEYS,
+            self.GEMINI_API_KEYS,
+            self.CLAUDE_API_KEYS
+        ]):
+            raise Exception("❌ No LLM API keys configured")
+
+        if not self.SN_INSTANCE:
+            print("⚠️ SN_INSTANCE not set (deploy will fail)")
+
+        if not self.SN_USERNAME or not self.SN_PASSWORD:
+            print("⚠️ SN credentials missing (deploy disabled)")
 
 
 settings = Settings()

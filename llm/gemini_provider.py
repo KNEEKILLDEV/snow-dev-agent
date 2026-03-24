@@ -7,7 +7,7 @@ def generate_gemini(messages, api_key):
 
         model = genai.GenerativeModel("gemini-2.5-flash")
 
-        formatted_messages = []
+        formatted = []
 
         for m in messages:
             if not isinstance(m, dict):
@@ -16,28 +16,12 @@ def generate_gemini(messages, api_key):
             role = m.get("role", "user")
             content = m.get("content", "")
 
-            if role == "system":
-                formatted_messages.append({
-                    "role": "user",
-                    "parts": [f"[SYSTEM]\n{content}"]
-                })
-
-            elif role == "assistant":
-                formatted_messages.append({
-                    "role": "model",
-                    "parts": [content]
-                })
-
+            if role == "assistant":
+                formatted.append({"role": "model", "parts": [content]})
             else:
-                formatted_messages.append({
-                    "role": "user",
-                    "parts": [content]
-                })
+                formatted.append({"role": "user", "parts": [content]})
 
-        if not formatted_messages:
-            raise Exception("No valid messages")
-
-        response = model.generate_content(formatted_messages)
+        response = model.generate_content(formatted)
 
         if hasattr(response, "text") and response.text:
             return response.text.strip()

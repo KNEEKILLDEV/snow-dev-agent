@@ -4,7 +4,34 @@ from llm.openai_provider import generate_openai
 from llm.gemini_provider import generate_gemini
 from llm.claude_provider import generate_claude
 
-from llm.utils.message_formatter import normalize_messages, validate_messages
+
+def normalize_messages(messages):
+    def flatten(items):
+        for i in items:
+            if isinstance(i, list):
+                yield from flatten(i)
+            else:
+                yield i
+
+    if not isinstance(messages, list):
+        return [{"role": "user", "content": str(messages)}]
+
+    flat = list(flatten(messages))
+
+    normalized = []
+    for m in flat:
+        if isinstance(m, dict):
+            normalized.append({
+                "role": m.get("role", "user"),
+                "content": str(m.get("content", ""))
+            })
+        else:
+            normalized.append({
+                "role": "user",
+                "content": str(m)
+            })
+
+    return normalized
 
 
 class ModelRouter:
@@ -29,19 +56,17 @@ class ModelRouter:
 
         for key in keys:
             try:
-                print(f"[Router] Trying {provider}...")
+                print(f"[Router] Trying {provider}")
                 return self.providers[provider](messages, key)
             except Exception as e:
                 print(f"[Router] {provider} failed: {e}")
-                continue
 
         raise Exception(f"All keys failed for {provider}")
 
     def generate(self, messages, provider="openai"):
         messages = normalize_messages(messages)
-        validate_messages(messages)
 
-        print("[Router] Final messages:", messages)
+        print("[Router DEBUG]", messages)
 
         providers_to_try = [provider] + [p for p in self.providers if p != provider]
 
