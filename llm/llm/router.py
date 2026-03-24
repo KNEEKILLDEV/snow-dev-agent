@@ -4,6 +4,8 @@ from llm.openai_provider import generate_openai
 from llm.gemini_provider import generate_gemini
 from llm.claude_provider import generate_claude
 
+from llm.utils.message_formatter import normalize_messages, validate_messages
+
 
 class ModelRouter:
 
@@ -16,26 +18,38 @@ class ModelRouter:
             "claude": generate_claude
         }
 
-    def get_random_key(self, provider):
-        keys = getattr(self.settings, f"{provider.upper()}_API_KEYS", [])
+    def get_keys(self, provider):
+        return getattr(self.settings, f"{provider.upper()}_API_KEYS", [])
+
+    def try_provider(self, provider, messages):
+        keys = self.get_keys(provider)
 
         if not keys:
             raise Exception(f"No API keys configured for provider: {provider}")
 
-        return random.choice(keys)
+        for key in keys:
+            try:
+                print(f"[Router] Trying {provider}...")
+                return self.providers[provider](messages, key)
+            except Exception as e:
+                print(f"[Router] {provider} failed: {e}")
+                continue
+
+        raise Exception(f"All keys failed for {provider}")
 
     def generate(self, messages, provider="openai"):
+        messages = normalize_messages(messages)
+        validate_messages(messages)
+
+        print("[Router] Final messages:", messages)
+
+        providers_to_try = [provider] + [p for p in self.providers if p != provider]
 
         errors = []
 
-        # Try selected provider first, fallback to others
-        providers_to_try = [provider] + [p for p in self.providers if p != provider]
-
         for p in providers_to_try:
             try:
-                api_key = self.get_random_key(p)
-                return self.providers[p](messages, api_key)
-
+                return self.try_provider(p, messages)
             except Exception as e:
                 errors.append(f"{p}: {str(e)}")
 
