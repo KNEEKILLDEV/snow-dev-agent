@@ -1,36 +1,32 @@
-from google import genai
+import requests
 
 
 def generate_gemini(messages, api_key):
+
+    prompt = "\n\n".join([
+        f"{m.get('role', 'user').upper()}:\n{m.get('content', '')}"
+        for m in messages
+    ])
+
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    body = {
+        "contents": [
+            {
+                "parts": [{"text": prompt}]
+            }
+        ]
+    }
+
+    r = requests.post(f"{url}?key={api_key}", headers=headers, json=body)
+
+    data = r.json()
+
     try:
-        client = genai.Client(api_key=api_key)
-
-        safe_messages = []
-
-        for m in messages:
-            if isinstance(m, dict):
-                safe_messages.append(m)
-            elif isinstance(m, list):
-                for inner in m:
-                    if isinstance(inner, dict):
-                        safe_messages.append(inner)
-            else:
-                safe_messages.append({
-                    "role": "user",
-                    "content": str(m)
-                })
-
-        prompt = "\n\n".join([
-            f"{m.get('role', 'user').upper()}:\n{m.get('content', '')}"
-            for m in safe_messages
-        ])
-
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-
-        return response.text.strip()
-
-    except Exception as e:
-        raise Exception(f"Gemini error: {str(e)}")
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except:
+        raise Exception(f"Gemini API error: {data}")
