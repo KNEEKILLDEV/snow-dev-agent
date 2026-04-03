@@ -46,7 +46,7 @@ col1, col2 = st.columns(2)
 with col1:
     selected_artifact_type = st.selectbox(
         "Artifact Type",
-        ["auto", "business_rule", "script_include", "client_script"]
+        ["auto", "business_rule", "script_include", "client_script", "workflow"]
     )
 
 with col2:
@@ -93,10 +93,15 @@ artifact = st.session_state.artifact
 
 if artifact:
 
-    st.success("Script Generated")
+    artifact_type_value = str(artifact.get("artifact_type", "")).lower()
+
+    if artifact_type_value == "workflow":
+        st.success("Workflow Plan Generated")
+    else:
+        st.success("Script Generated")
 
     # Normalize display
-    artifact_type_display = artifact.get("artifact_type", "").lower()
+    artifact_type_display = artifact_type_value.replace("_", " ")
 
     st.subheader("Artifact Type")
     st.code(artifact_type_display)
@@ -104,22 +109,48 @@ if artifact:
     st.subheader("Name")
     st.code(artifact.get("name", ""))
 
+    if artifact.get("description"):
+        st.subheader("Description")
+        st.write(artifact.get("description"))
+
     if artifact.get("table"):
         st.subheader("Table")
         st.code(artifact.get("table", ""))
 
-    # ---------------- SCRIPT FORMAT FIX ----------------
-    st.subheader("Generated Script")
-
     script = artifact.get("script", "")
 
-    if isinstance(script, str):
-        script = script.replace("\\n", "\n").replace("\\t", "\t")
+    if artifact.get("workflow_definition"):
+        st.subheader("Workflow Definition")
+        st.json(artifact.get("workflow_definition"))
 
-    st.code(script, language="javascript")
+    if artifact.get("workflow_steps"):
+        st.subheader("Workflow Steps")
+        for index, step in enumerate(artifact.get("workflow_steps", []), start=1):
+            with st.expander(f"Step {index}: {step.get('name', 'Unnamed Step')}"):
+                st.write(f"Artifact Type: {step.get('artifact_type', '')}")
+                if step.get("table"):
+                    st.write(f"Table: {step.get('table')}")
+                if step.get("description"):
+                    st.write(step.get("description"))
+                if step.get("script"):
+                    step_script = step.get("script", "")
+                    if isinstance(step_script, str):
+                        step_script = step_script.replace("\\n", "\n").replace("\\t", "\t")
+                    st.code(step_script, language="javascript")
+                else:
+                    st.write("No script body for this step.")
+
+    if script:
+        # ---------------- SCRIPT FORMAT FIX ----------------
+        st.subheader("Generated Script")
+
+        if isinstance(script, str):
+            script = script.replace("\\n", "\n").replace("\\t", "\t")
+
+        st.code(script, language="javascript")
 
     # ---------------- VALIDATION FIX ----------------
-    validation = validate_script(script)
+    validation = validate_script(artifact)
 
     if isinstance(validation, list):
         validation = {

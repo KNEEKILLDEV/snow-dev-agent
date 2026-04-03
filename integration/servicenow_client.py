@@ -8,6 +8,7 @@ ARTIFACT_TABLES = {
     "business_rule": "sys_script",
     "script_include": "sys_script_include",
     "client_script": "sys_script_client",
+    "workflow": "wf_workflow",
 }
 
 DEBUG_LOG_PATH = Path(__file__).resolve().parents[1] / "logs" / "deployment_debug.txt"
@@ -40,6 +41,7 @@ def summarize_artifact_for_log(artifact):
         return {"artifact_repr": truncate(artifact, 500)}
 
     script = artifact.get("script", "")
+    workflow_steps = artifact.get("workflow_steps") or []
 
     return {
         "artifact_type": artifact.get("artifact_type"),
@@ -52,6 +54,7 @@ def summarize_artifact_for_log(artifact):
         "update": artifact.get("update"),
         "type": artifact.get("type"),
         "script_length": len(script) if isinstance(script, str) else None,
+        "workflow_step_count": len(workflow_steps) if isinstance(workflow_steps, list) else None,
     }
 
 
@@ -68,6 +71,8 @@ def normalize_artifact_type(value):
         "script_include": "script_include",
         "client script": "client_script",
         "client_script": "client_script",
+        "workflow": "workflow",
+        "classic workflow": "workflow",
     }
 
     return mapping.get(value, "unknown")
@@ -95,12 +100,56 @@ def resolve_target_table(artifact_type):
     return target_table
 
 
+def build_workflow_description(artifact):
+    description = artifact.get("description")
+
+    if not description:
+        workflow_definition = artifact.get("workflow_definition")
+
+        if isinstance(workflow_definition, (dict, list)):
+            try:
+                description = json.dumps(workflow_definition, ensure_ascii=True, indent=2, default=str)
+            except Exception:
+                description = str(workflow_definition)
+        elif workflow_definition:
+            description = str(workflow_definition)
+        else:
+            description = "Generated workflow"
+
+    step_names = []
+    for step in artifact.get("workflow_steps") or []:
+        if isinstance(step, dict) and step.get("name"):
+            step_names.append(step["name"])
+
+    if step_names:
+        description = f"{description}\nSteps: {', '.join(step_names)}"
+
+    return truncate(description, 4000)
+
+
 def build_payload(artifact):
     artifact_type = normalize_artifact_type(
         artifact.get("artifact_type") or artifact.get("requested_artifact_type")
     )
 
     table = resolve_target_table(artifact_type)
+
+    if artifact_type == "workflow":
+        target_table = artifact.get("table") or artifact.get("requested_table")
+
+        if not target_table:
+            raise ValueError("Workflows require a target table")
+
+        body = {
+            "name": artifact.get("name") or "generated_workflow",
+            "table": target_table,
+            "description": build_workflow_description(artifact),
+        }
+
+        if artifact.get("published") is not None:
+            body["published"] = coerce_bool(artifact.get("published"), False)
+
+        return table, body
 
     body = {
         "name": artifact.get("name") or "generated_script",
@@ -272,48 +321,118 @@ def get_headers():
     }
 
 
-# ---------------- DEPLOY ----------------
-def deploy_artifact(artifact):
+def deploy_single_artifact(artifact, headers=None, instance=None):
+    instance = (instance or settings.SN_INSTANCE or "").rstrip("/")
+
+    if not instance:
+        raise ValueError("SN_INSTANCE is not configured")
+
+    table, body = build_payload(artifact)
+
+    headers = headers or get_headers()
+
+    url = f"{instance}/api/now/table/{table}"
+
+    payload_candidates = [body]
+
+    if normalize_artifact_type(artifact.get("artifact_type")) == "business_rule":
+        fallback = dict(body)
+        fallback["table"] = fallback.pop("collection")
+        payload_candidates.append(fallback)
+
+    response = send_with_fallback(url, headers, payload_candidates)
+
+    print("\n[SN RESPONSE]", response.text)
 
     try:
-        instance = (settings.SN_INSTANCE or "").rstrip("/")
+        return response.json()
+    except ValueError:
+        write_debug_log(
+            "deploy_non_json_response",
+            {
+                "status_code": response.status_code,
+                "content_type": response.headers.get("Content-Type"),
+                "response": truncate(response.text, 2000),
+            },
+        )
+        return {
+            "status_code": response.status_code,
+            "content_type": response.headers.get("Content-Type"),
+            "response_text": truncate(response.text, 2000),
+        }
+
+
+def workflow_step_order(step):
+    if not isinstance(step, dict):
+        return 10**9
+
+    try:
+        return int(step.get("order"))
+    except Exception:
+        return 10**9
+
+
+# ---------------- DEPLOY ----------------
+def deploy_artifact(artifact, headers=None, instance=None):
+
+    try:
+        instance = (instance or settings.SN_INSTANCE or "").rstrip("/")
 
         if not instance:
             raise ValueError("SN_INSTANCE is not configured")
 
-        table, body = build_payload(artifact)
+        artifact_type = normalize_artifact_type(artifact.get("artifact_type"))
 
-        headers = get_headers()
+        if artifact_type == "workflow":
+            headers = headers or get_headers()
 
-        url = f"{instance}/api/now/table/{table}"
+            workflow_record = deploy_single_artifact(artifact, headers=headers, instance=instance)
 
-        payload_candidates = [body]
-
-        if normalize_artifact_type(artifact.get("artifact_type")) == "business_rule":
-            fallback = dict(body)
-            fallback["table"] = fallback.pop("collection")
-            payload_candidates.append(fallback)
-
-        response = send_with_fallback(url, headers, payload_candidates)
-
-        print("\n[SN RESPONSE]", response.text)
-
-        try:
-            return response.json()
-        except ValueError:
-            write_debug_log(
-                "deploy_non_json_response",
-                {
-                    "status_code": response.status_code,
-                    "content_type": response.headers.get("Content-Type"),
-                    "response": truncate(response.text, 2000),
-                },
+            workflow_steps = artifact.get("workflow_steps") or []
+            ordered_steps = sorted(
+                workflow_steps,
+                key=workflow_step_order,
             )
+
+            step_results = []
+            for index, step in enumerate(ordered_steps, start=1):
+                if not isinstance(step, dict):
+                    continue
+
+                write_debug_log(
+                    "workflow_step_start",
+                    {
+                        "workflow_name": artifact.get("name"),
+                        "step_index": index,
+                        "step": summarize_artifact_for_log(step),
+                    },
+                )
+
+                step_result = deploy_artifact(step, headers=headers, instance=instance)
+                step_results.append(
+                    {
+                        "step_index": index,
+                        "name": step.get("name"),
+                        "artifact_type": step.get("artifact_type"),
+                        "result": step_result,
+                    }
+                )
+
+                write_debug_log(
+                    "workflow_step_success",
+                    {
+                        "workflow_name": artifact.get("name"),
+                        "step_index": index,
+                        "step_name": step.get("name"),
+                    },
+                )
+
             return {
-                "status_code": response.status_code,
-                "content_type": response.headers.get("Content-Type"),
-                "response_text": truncate(response.text, 2000),
+                "workflow_record": workflow_record,
+                "workflow_steps": step_results,
             }
+
+        return deploy_single_artifact(artifact, headers=headers, instance=instance)
     except Exception as exc:
         write_debug_log(
             "deploy_artifact_exception",
