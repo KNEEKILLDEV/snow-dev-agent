@@ -3,6 +3,7 @@ from config.settings import settings
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import re
 
 ARTIFACT_TABLES = {
     "business_rule": "sys_script",
@@ -11,7 +12,25 @@ ARTIFACT_TABLES = {
     "workflow": "wf_workflow",
 }
 
-DEBUG_LOG_PATH = Path(__file__).resolve().parents[1] / "logs" / "deployment_debug.txt"
+DEBUG_LOG_PATH = Path(__file__).resolve().parents[1] / "logs" / "workflow_debug.txt"
+REQUEST_TIMEOUT = 60
+
+
+def build_http_session():
+    session = requests.Session()
+    session.trust_env = False
+    return session
+
+
+def redact_sensitive_text(text):
+    if not text:
+        return ""
+
+    redacted = str(text)
+    redacted = re.sub(r'("access_token"\s*:\s*")[^"]+(")', r'\1[redacted]\2', redacted)
+    redacted = re.sub(r'("client_secret"\s*:\s*")[^"]+(")', r'\1[redacted]\2', redacted)
+
+    return redacted
 
 
 def write_debug_log(event, details):
@@ -193,6 +212,7 @@ def build_payload(artifact):
 
 def send_with_fallback(url, headers, payload_candidates):
     errors = []
+    session = build_http_session()
 
     for index, payload in enumerate(payload_candidates, start=1):
         write_debug_log(
@@ -206,7 +226,7 @@ def send_with_fallback(url, headers, payload_candidates):
         )
 
         try:
-            response = requests.post(url, headers=headers, json=payload)
+            response = session.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
 
             write_debug_log(
@@ -246,6 +266,7 @@ def get_oauth_token():
         raise ValueError("SN_INSTANCE is not configured")
 
     url = f"{instance}/oauth_token.do"
+    session = build_http_session()
 
     data = {
         "grant_type": "client_credentials",
@@ -253,13 +274,14 @@ def get_oauth_token():
         "client_secret": settings.SN_CLIENT_SECRET
     }
 
-    r = requests.post(
+    r = session.post(
         url,
         data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"}
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=REQUEST_TIMEOUT
     )
 
-    print("\n[OAUTH RESPONSE]", r.text)
+    print("\n[OAUTH RESPONSE]", redact_sensitive_text(r.text))
 
     try:
         r.raise_for_status()
@@ -273,14 +295,14 @@ def get_oauth_token():
         )
         raise RuntimeError(f"ServiceNow OAuth failed: {r.status_code} {truncate(r.text, 500)}") from exc
 
-    write_debug_log(
-        "oauth_success",
-        {
-            "status_code": r.status_code,
-            "content_type": r.headers.get("Content-Type"),
-            "response_preview": truncate(r.text, 500),
-        },
-    )
+        write_debug_log(
+            "oauth_success",
+            {
+                "status_code": r.status_code,
+                "content_type": r.headers.get("Content-Type"),
+                "response_preview": redact_sensitive_text(truncate(r.text, 500)),
+            },
+        )
 
     if "Instance Hibernating page" in r.text:
         write_debug_log(
@@ -319,6 +341,83 @@ def get_headers():
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
+
+
+def lookup_group_sys_id(*name_hints, instance=None, headers=None):
+    instance = (instance or settings.SN_INSTANCE or "").rstrip("/")
+
+    if not instance:
+        return None
+
+    session = build_http_session()
+    headers = headers or get_headers()
+
+    cleaned_hints = [hint.strip() for hint in name_hints if isinstance(hint, str) and hint.strip()]
+    if not cleaned_hints:
+        return None
+
+    queries = []
+    for hint in cleaned_hints:
+        queries.extend([
+            f"name={hint}",
+            f"nameLIKE{hint}",
+            f"descriptionLIKE{hint}",
+        ])
+
+    for query in queries:
+        try:
+            write_debug_log(
+                "group_lookup_attempt",
+                {
+                    "query": query,
+                },
+            )
+
+            response = session.get(
+                f"{instance}/api/now/table/sys_user_group",
+                headers=headers,
+                params={
+                    "sysparm_query": query,
+                    "sysparm_fields": "sys_id,name,description",
+                    "sysparm_limit": "10",
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+
+            result = response.json().get("result") or []
+            if not result:
+                continue
+
+            lower_hints = {hint.lower() for hint in cleaned_hints}
+            exact_match = None
+            for row in result:
+                name = str(row.get("name") or "").strip().lower()
+                if name in lower_hints:
+                    exact_match = row
+                    break
+
+            chosen = exact_match or result[0]
+
+            write_debug_log(
+                "group_lookup_success",
+                {
+                    "query": query,
+                    "group": chosen,
+                },
+            )
+
+            return chosen.get("sys_id")
+        except Exception as exc:
+            write_debug_log(
+                "group_lookup_failure",
+                {
+                    "query": query,
+                    "error": truncate(str(exc), 1000),
+                },
+            )
+
+    return None
 
 
 def deploy_single_artifact(artifact, headers=None, instance=None):

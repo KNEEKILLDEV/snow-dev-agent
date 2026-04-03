@@ -1,4 +1,5 @@
 import requests
+from config.settings import settings
 
 
 def generate_gemini(messages, api_key):
@@ -15,6 +16,12 @@ def generate_gemini(messages, api_key):
     }
 
     body = {
+        "generationConfig": {
+            "temperature": 0.2,
+            "topP": 0.95,
+            "maxOutputTokens": 8192,
+            "responseMimeType": "application/json",
+        },
         "contents": [
             {
                 "parts": [{"text": prompt}]
@@ -22,7 +29,18 @@ def generate_gemini(messages, api_key):
         ]
     }
 
-    r = requests.post(f"{url}?key={api_key}", headers=headers, json=body)
+    request_timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 180)
+
+    with requests.Session() as session:
+        session.trust_env = False
+        r = session.post(
+            f"{url}?key={api_key}",
+            headers=headers,
+            json=body,
+            timeout=request_timeout,
+        )
+
+    r.raise_for_status()
 
     data = r.json()
 

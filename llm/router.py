@@ -1,8 +1,7 @@
-import random
-
 from llm.openai_provider import generate_openai
 from llm.gemini_provider import generate_gemini
 from llm.claude_provider import generate_claude
+from llm.errors import LLMProviderError
 
 
 def normalize_messages(messages):
@@ -49,33 +48,48 @@ class ModelRouter:
         return getattr(self.settings, f"{provider.upper()}_API_KEYS", [])
 
     def try_provider(self, provider, messages):
+        if provider not in self.providers:
+            raise LLMProviderError(
+                provider=provider,
+                message=f"Unsupported provider: {provider}. Choose one of: openai, gemini, claude.",
+                error_kind="invalid_request",
+                raw_error="Provider is not registered in the router.",
+            )
+
         keys = self.get_keys(provider)
 
         if not keys:
-            raise Exception(f"No API keys configured for provider: {provider}")
+            raise LLMProviderError(
+                provider=provider,
+                message=f"{provider} is not configured. Add {provider.upper()}_API_KEYS to .env.",
+                error_kind="no_keys",
+                raw_error="No API keys configured for provider",
+            )
 
+        last_error = None
         for key in keys:
             try:
                 print(f"[Router] Trying {provider}")
                 return self.providers[provider](messages, key)
             except Exception as e:
                 print(f"[Router] {provider} failed: {e}")
+                last_error = e
 
-        raise Exception(f"All keys failed for {provider}")
+        if last_error is None:
+            raise LLMProviderError(
+                provider=provider,
+                message=f"{provider} request failed.",
+                raw_error="No provider error was captured.",
+            )
 
-    def generate(self, messages, provider="openai"):
+        raise LLMProviderError.from_exception(provider, last_error)
+
+    def generate(self, messages, provider=None):
         messages = normalize_messages(messages)
 
         print("[Router DEBUG]", messages)
 
-        providers_to_try = [provider] + [p for p in self.providers if p != provider]
+        if not provider:
+            provider = self.settings.DEFAULT_PROVIDER
 
-        errors = []
-
-        for p in providers_to_try:
-            try:
-                return self.try_provider(p, messages)
-            except Exception as e:
-                errors.append(f"{p}: {str(e)}")
-
-        raise Exception("All providers failed: " + " | ".join(errors))
+        return self.try_provider(provider, messages)

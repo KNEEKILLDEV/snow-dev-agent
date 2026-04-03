@@ -10,6 +10,13 @@ def parse_keys(key_string):
     return [k.strip() for k in key_string.split(",") if k.strip()]
 
 
+def parse_int(value, default):
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError, AttributeError):
+        return default
+
+
 def getenv_any(*names, default=None):
     for name in names:
         value = os.getenv(name)
@@ -26,6 +33,10 @@ class Settings:
         self.OPENAI_API_KEYS = parse_keys(getenv_any("OPENAI_API_KEYS", "OPENAI_KEYS"))
         self.GEMINI_API_KEYS = parse_keys(getenv_any("GEMINI_API_KEYS", "GEMINI_KEYS"))
         self.CLAUDE_API_KEYS = parse_keys(getenv_any("CLAUDE_API_KEYS", "CLAUDE_KEYS"))
+        self.LLM_REQUEST_TIMEOUT_SECONDS = max(
+            parse_int(getenv_any("LLM_REQUEST_TIMEOUT_SECONDS"), 180),
+            1,
+        )
 
         self.DEFAULT_PROVIDER = getenv_any("DEFAULT_PROVIDER", "DEFAULT_MODEL_PROVIDER", default="gemini")
 
